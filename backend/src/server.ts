@@ -374,6 +374,29 @@ const startServer = async () => {
         });
       }
 
+      // Abandoned capture cleanup: runs hourly, purges images for captures
+      // whose hosted-page session expired before completing.
+      {
+        const cron = await import('node-cron');
+        const { DataRetentionService } = await import('@/services/dataRetention.js');
+        const abandonedCaptureRetentionService = new DataRetentionService();
+
+        cron.schedule('0 * * * *', async () => {
+          try {
+            const count = await abandonedCaptureRetentionService.runAbandonedCaptureCleanup();
+            if (count > 0) {
+              logger.info(`Abandoned capture cleanup: ${count} verifications purged`);
+            }
+          } catch (err) {
+            logger.error('Abandoned capture cleanup cron failed', { error: err });
+          }
+        });
+
+        logger.info('Abandoned capture cleanup scheduler started', {
+          schedule: '0 * * * * (hourly)',
+        });
+      }
+
       // Activity log cleanup — runs daily at 1 AM UTC, deletes logs older than 7 days
       {
         const cron = await import('node-cron');
