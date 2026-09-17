@@ -1,0 +1,71 @@
+# https://taskfile.dev
+#
+# Builds and publishes this fork's own images — the plain backend image plus
+# engine/Dockerfile.pinned's OCR-model-baked variant (APAY-350) — to the
+# shared ECR account already used by identity-verification-app-tf's Bitbucket
+# pipelines. Not synced from upstream, safe to extend freely.
+#
+# Rationale for the pinned engine image and the ECR account choice:
+# identity-verification-service's ai/60__IDSWYFT_FORK_CHANGES.md.
+#
+# Run from identity-verification-app-tf's pipeline (see its
+# bitbucket-pipelines.yml, "build-and-push-idswyft-images" custom pipeline),
+# not from this repo's own CI — this repo's GitHub Actions still only builds
+# and publishes upstream's own ghcr.io images (docker-publish.yml), untouched.
+
+version: "3"
+
+vars:
+  AWS_REGION: "eu-central-1"
+  AWS_ACCOUNT_ID: "308252154523"
+  CAPTURE_API_REPO: "identity-verification-capture-api"
+  ENGINE_REPO: "identity-verification-engine-pinned"
+  REGISTRY: "{{.AWS_ACCOUNT_ID}}.dkr.ecr.{{.AWS_REGION}}.amazonaws.com"
+  IMAGE_TAG:
+    sh: git rev-parse --short HEAD
+
+tasks:
+  ecr-login:
+    desc: "Authenticate docker to the shared ECR account"
+    cmds:
+      - aws ecr get-login-password --region {{.AWS_REGION}} | docker login --username AWS --password-stdin {{.REGISTRY}}
+
+  ensure-repo-capture-api:
+    internal: true
+    desc: "Create the capture-api ECR repo if it doesn't exist yet (idempotent)"
+    cmds:
+      - |
+        aws ecr describe-repositories --region {{.AWS_REGION}} --repository-names {{.CAPTURE_API_REPO}} >/dev/null 2>&1 || \
+        aws ecr create-repository --region {{.AWS_REGION}} --repository-name {{.CAPTURE_API_REPO}} --image-scanning-configuration scanOnPush=true
+
+  ensure-repo-engine:
+    internal: true
+    desc: "Create the engine ECR repo if it doesn't exist yet (idempotent)"
+    cmds:
+      - |
+        aws ecr describe-repositories --region {{.AWS_REGION}} --repository-names {{.ENGINE_REPO}} >/dev/null 2>&1 || \
+        aws ecr create-repository --region {{.AWS_REGION}} --repository-name {{.ENGINE_REPO}} --image-scanning-configuration scanOnPush=true
+
+  build-push-capture-api:
+    desc: "Build backend/Dockerfile and push it to ECR, tagged with the commit SHA and :latest"
+    deps: [ecr-login, ensure-repo-capture-api]
+    cmds:
+      - docker build -f backend/Dockerfile -t {{.REGISTRY}}/{{.CAPTURE_API_REPO}}:{{.IMAGE_TAG}} .
+      - docker tag {{.REGISTRY}}/{{.CAPTURE_API_REPO}}:{{.IMAGE_TAG}} {{.REGISTRY}}/{{.CAPTURE_API_REPO}}:latest
+      - docker push {{.REGISTRY}}/{{.CAPTURE_API_REPO}}:{{.IMAGE_TAG}}
+      - docker push {{.REGISTRY}}/{{.CAPTURE_API_REPO}}:latest
+
+  build-push-engine:
+    desc: "Build engine/Dockerfile.pinned (our layer over upstream's exact digest) and push it to ECR"
+    deps: [ecr-login, ensure-repo-engine]
+    cmds:
+      - docker build -f engine/Dockerfile.pinned -t {{.REGISTRY}}/{{.ENGINE_REPO}}:{{.IMAGE_TAG}} engine
+      - docker tag {{.REGISTRY}}/{{.ENGINE_REPO}}:{{.IMAGE_TAG}} {{.REGISTRY}}/{{.ENGINE_REPO}}:latest
+      - docker push {{.REGISTRY}}/{{.ENGINE_REPO}}:{{.IMAGE_TAG}}
+      - docker push {{.REGISTRY}}/{{.ENGINE_REPO}}:latest
+
+  build-push-all:
+    desc: "Build and push both images"
+    cmds:
+      - task: build-push-capture-api
+      - task: build-push-engine
