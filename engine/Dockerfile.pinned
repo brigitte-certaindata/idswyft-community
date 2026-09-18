@@ -1,0 +1,13 @@
+# A 4-line layer on upstream's published engine image — does not modify
+# engine/Dockerfile, does not rebuild from source. Bakes the OCR models
+# into the image so a task with no outbound network access still extracts
+# documents, instead of fetching them from GitHub on first use.
+#
+# The base image is pinned by digest, not a tag, since a tag can be
+# re-pushed to point at different content and a digest can't — re-resolve
+# it deliberately when taking a new upstream engine release, never let it
+# drift automatically.
+FROM ghcr.io/team-idswyft/idswyft-engine@sha256:9967b8053c619b6f8e8ef4d0b288c0f82713cf0b2f660684363d7ff6a14a6609
+ADD --chown=nodeuser:nodeuser https://media.githubusercontent.com/media/PT-Perkasa-Pilar-Utama/ppu-paddle-ocr-models/main/detection/PP-OCRv5_mobile_det_infer.onnx /home/nodeuser/.cache/ppu-paddle-ocr/
+ADD --chown=nodeuser:nodeuser https://media.githubusercontent.com/media/PT-Perkasa-Pilar-Utama/ppu-paddle-ocr-models/main/recognition/multi/en/v5/en_PP-OCRv5_mobile_rec_infer.onnx /home/nodeuser/.cache/ppu-paddle-ocr/
+ADD --chown=nodeuser:nodeuser https://raw.githubusercontent.com/PT-Perkasa-Pilar-Utama/ppu-paddle-ocr-models/main/recognition/multi/en/v5/ppocrv5_en_dict.txt /home/nodeuser/.cache/ppu-paddle-ocr/

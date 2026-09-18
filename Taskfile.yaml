@@ -1,0 +1,56 @@
+# https://taskfile.dev
+#
+# Builds and publishes this fork's own images — the plain backend image
+# plus engine/Dockerfile.pinned's OCR-model-baked variant — to the shared
+# ECR account already used by identity-verification-app-tf's Bitbucket
+# pipelines. Not synced from upstream, safe to extend freely.
+#
+# Both repos are provisioned by Terraform in the org's own
+# euc1-deployments-repositories repo (repositories_identity_verification.tf),
+# IMMUTABLE - so this file only ever pushes one unique tag per build (the
+# git short SHA), never :latest. Re-pushing an existing tag to an IMMUTABLE
+# repo is rejected, and there is no repo-creation step here anymore - if a
+# push fails because the repo doesn't exist, that's a signal to check
+# whether that Terraform has actually been applied yet, not to add one back.
+#
+# Run from identity-verification-app-tf's pipeline (see its
+# bitbucket-pipelines.yml, "build-and-push-idswyft-images" custom pipeline),
+# not from this repo's own CI — this repo's GitHub Actions still only builds
+# and publishes upstream's own ghcr.io images (docker-publish.yml), untouched.
+
+version: "3"
+
+vars:
+  AWS_REGION: "eu-central-1"
+  AWS_ACCOUNT_ID: "308252154523"
+  CAPTURE_API_REPO: "identity-verification-capture-api"
+  ENGINE_REPO: "identity-verification-engine-pinned"
+  REGISTRY: "{{.AWS_ACCOUNT_ID}}.dkr.ecr.{{.AWS_REGION}}.amazonaws.com"
+  IMAGE_TAG:
+    sh: git rev-parse --short HEAD
+
+tasks:
+  ecr-login:
+    desc: "Authenticate docker to the shared ECR account"
+    cmds:
+      - aws ecr get-login-password --region {{.AWS_REGION}} | docker login --username AWS --password-stdin {{.REGISTRY}}
+
+  build-push-capture-api:
+    desc: "Build backend/Dockerfile and push it to ECR, tagged with the commit SHA only"
+    deps: [ecr-login]
+    cmds:
+      - docker build -f backend/Dockerfile -t {{.REGISTRY}}/{{.CAPTURE_API_REPO}}:{{.IMAGE_TAG}} .
+      - docker push {{.REGISTRY}}/{{.CAPTURE_API_REPO}}:{{.IMAGE_TAG}}
+
+  build-push-engine:
+    desc: "Build engine/Dockerfile.pinned (our layer over upstream's exact digest) and push it to ECR, tagged with the commit SHA only"
+    deps: [ecr-login]
+    cmds:
+      - docker build -f engine/Dockerfile.pinned -t {{.REGISTRY}}/{{.ENGINE_REPO}}:{{.IMAGE_TAG}} engine
+      - docker push {{.REGISTRY}}/{{.ENGINE_REPO}}:{{.IMAGE_TAG}}
+
+  build-push-all:
+    desc: "Build and push both images"
+    cmds:
+      - task: build-push-capture-api
+      - task: build-push-engine
