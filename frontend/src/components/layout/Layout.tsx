@@ -28,19 +28,13 @@ export function Layout({ children }: LayoutProps) {
   // ─────────────────────────────────────────
   // Community edition: no navbar, minimal footer (v2 styling)
   // ─────────────────────────────────────────
-  const pathname = location.pathname
-  const showBackNav = pathname !== '/' && pathname !== '/developer' && pathname !== '/setup'
+  // The back-nav below used to point at "/" (Dev Portal). The portal is
+  // no longer routed (see App.tsx), so there's nothing to link back to —
+  // removed rather than left pointing at a 404.
 
   return (
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
       <main className="flex-1">
-        {showBackNav && (
-          <div style={{ borderBottom: '1px solid var(--rule)', padding: '10px 24px' }}>
-            <Link to="/" className="mono" style={{ color: 'var(--mid)', fontSize: 12.5, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-              &#8592; Dev Portal
-            </Link>
-          </div>
-        )}
         {children}
       </main>
 
@@ -54,9 +48,8 @@ export function Layout({ children }: LayoutProps) {
             </a>
             <div className="flex items-center gap-6">
               {[
-                { label: 'Dev Portal', href: '/' },
-                { label: 'Docs', href: '/docs' },
-                { label: 'Demo', href: '/demo' },
+                // 'Dev Portal' (/), 'Docs' (/docs), and 'Demo' (/demo)
+                // links removed — those pages are no longer routed.
                 { label: 'Verify Credential', href: '/verify-credential' },
               ].map(({ label, href }) => (
                 <Link key={label} to={href}

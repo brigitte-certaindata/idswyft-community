@@ -21,10 +21,15 @@ import { logger } from './utils/logger.js';
 import { createGracefulShutdown } from './utils/gracefulShutdown.js';
 import { configureSharedLogger } from '@idswyft/shared';
 import newVerificationRoutes from './routes/newVerification.js';
-import developerRoutes from './routes/developer/index.js';
-import adminRoutes from './routes/admin.js';
-import adminThresholdsRoutes from './routes/admin-thresholds.js';
-import authRoutes from './routes/auth.js';
+// Developer portal, admin/admin-thresholds, portal auth (OTP/OAuth/TOTP/
+// admin login), first-run setup, and the JSON/markdown API-docs routes are
+// intentionally not imported/mounted below — this deployment serves only
+// the capture flow and its API. The route files themselves
+// (routes/developer/*, routes/admin.ts, routes/admin-thresholds.ts,
+// routes/auth.ts, routes/setup.ts, api-docs/apiDocsMarkdown.ts) are left
+// untouched on disk rather than deleted, so upstream's continuing changes
+// to them keep merging cleanly — re-check this list after every upstream
+// sync in case a new route needs the same treatment.
 import healthRoutes from './routes/health.js';
 import webhookRoutes from './routes/webhooks.js';
 import vaasRoutes from './routes/vaas.js';
@@ -33,13 +38,11 @@ import batchRoutes from './routes/batch.js';
 import addressVerificationRoutes from './routes/addressVerification.js';
 import monitoringRoutes from './routes/monitoring.js';
 import statusRoutes from './routes/status.js';
-import setupRoutes from './routes/setup.js';
 import pageConfigRoutes from './routes/pageConfig.js';
 import credentialRoutes from './routes/credentials.js';
 import complianceRoutes from './routes/compliance.js';
 import wellKnownRoutes from './routes/well-known.js';
 import vaultRoutes from './routes/vault.js';
-import { getApiDocsMarkdown } from './api-docs/apiDocsMarkdown.js';
 import systemRoutes from './routes/system.js';
 import { APP_VERSION } from './utils/version.js';
 
@@ -130,11 +133,9 @@ app.use('/api', apiActivityLogger);
 // Mount API routes
 app.use('/api/v2/verify', newVerificationRoutes);
 app.use('/api/verify/handoff', handoffRoutes);
-// Cookie-authenticated route groups — enforce CSRF on mutations when auth cookie present
-app.use('/api/developer', conditionalCsrf, developerRoutes);
-app.use('/api/admin', conditionalCsrf, adminRoutes);
-app.use('/api/admin/thresholds', conditionalCsrf, adminThresholdsRoutes);
-app.use('/api/auth', conditionalCsrf, authRoutes);
+// /api/developer, /api/admin, /api/admin/thresholds, /api/auth (portal
+// OTP/OAuth/TOTP login) and /api/setup (first-run account creation) are
+// deliberately not mounted — see the import comment above.
 app.use('/api/health', healthRoutes);
 app.use('/api/webhooks', webhookRoutes);
 app.use('/api/vaas', vaasRoutes);
@@ -143,7 +144,6 @@ app.use('/api/v2/verify', addressVerificationRoutes);
 app.use('/api/v2/verify', pageConfigRoutes);
 app.use('/api/v2/monitoring', monitoringRoutes);
 app.use('/api/status', statusRoutes);
-app.use('/api/setup', setupRoutes);
 app.use('/api/v2/verify', credentialRoutes);
 app.use('/api/v2', credentialRoutes);
 app.use('/api/v2/compliance', conditionalCsrf, complianceRoutes);
@@ -244,96 +244,22 @@ app.get('/', (req, res) => {
     version: APP_VERSION,
     status: 'running',
     environment: config.nodeEnv,
-    documentation: '/api/docs',
     health: '/api/health'
   });
 });
 
-// LLM-friendly markdown documentation — self-hosted deployments see their own domain
-app.get('/api/docs/markdown', (req, res) => {
-  let baseUrl = 'https://api.idswyft.app';
-  const rawProto = req.headers['x-forwarded-proto'];
-  const proto = (Array.isArray(rawProto) ? rawProto[0] : rawProto)?.split(',')[0]?.trim() || req.protocol;
-  const rawHost = req.headers['x-forwarded-host'] || req.headers['host'];
-  const hostStr = Array.isArray(rawHost) ? rawHost[0] : rawHost;
-  if (hostStr && (proto === 'http' || proto === 'https') && /^[a-zA-Z0-9._-]+(:\d+)?$/.test(hostStr)) {
-    baseUrl = `${proto}://${hostStr}`;
-  }
-  res.setHeader('Content-Type', 'text/markdown; charset=utf-8');
-  res.setHeader('Cache-Control', 'public, max-age=3600');
-  res.send(getApiDocsMarkdown(baseUrl));
-});
-
-// API documentation endpoint - clean, user-facing routes
-app.get('/api/docs', (req, res) => {
-  res.json({
-    title: 'Idswyft API Documentation',
-    version: APP_VERSION,
-    generated: new Date().toISOString(),
-    endpoints: {
-      health: {
-        'GET /api/health': 'Health check endpoint'
-      },
-      verification: {
-        'POST /api/v2/verify/initialize': 'Start a new verification session',
-        'POST /api/v2/verify/:id/front-document': 'Upload front of ID document for OCR extraction',
-        'POST /api/v2/verify/:id/back-document': 'Upload back of ID for barcode/MRZ extraction + auto cross-validation',
-        'POST /api/v2/verify/:id/live-capture': 'Upload selfie for liveness detection + auto face matching',
-        'GET /api/v2/verify/:id/status': 'Get complete verification status and results',
-      },
-      handoff: {
-        'POST /api/verify/handoff/create': 'Create mobile handoff session',
-        'GET /api/verify/handoff/session/:token': 'Retrieve handoff session by token',
-        'PATCH /api/verify/handoff/complete/:token': 'Mark handoff session as complete',
-        'GET /api/verify/handoff/status/:handoffId': 'Poll handoff completion status',
-      },
-      developer: {
-        'POST /api/developer/register': 'Register as a developer',
-        'POST /api/developer/api-key': 'Create new API key',
-        'GET /api/developer/api-keys': 'List API keys',
-        'DELETE /api/developer/api-key/:id': 'Delete API key',
-        'GET /api/developer/stats': 'Get usage statistics',
-        'GET /api/developer/activity': 'Get API activity logs'
-      },
-      admin: {
-        'GET /api/admin/verifications': 'List all verifications (admin)',
-        'GET /api/admin/verification/:id': 'Get verification details (admin)',
-        'PUT /api/admin/verification/:id/review': 'Update verification review (admin)',
-        'GET /api/admin/stats': 'Get admin statistics'
-      },
-      webhooks: {
-        'POST /api/webhooks/register': 'Register webhook URL',
-        'GET /api/webhooks': 'List registered webhooks',
-        'DELETE /api/webhooks/:id': 'Delete webhook',
-        'POST /api/webhooks/:id/test': 'Test webhook delivery'
-      },
-      auth: {
-        'POST /api/auth/login': 'Admin login',
-        'POST /api/auth/logout': 'Admin logout',
-        'GET /api/auth/me': 'Get current user info'
-      }
-    },
-    authentication: {
-      'API Key': 'Include X-API-Key header with your API key',
-      'Admin': 'Include Authorization header with Bearer token'
-    },
-    notes: {
-      'Rate Limiting': 'All endpoints are rate limited',
-      'CORS': 'Cross-origin requests are supported',
-      'Verification Flow': '5-step pipeline: front-document → back-document (auto cross-validation) → live-capture (auto face-match) → status',
-      'Hard Rejection': 'Any gate failure produces an immediate hard rejection — the session cannot proceed'
-    }
-  });
-});
-
-
+// /api/docs and /api/docs/markdown (and the api-docs/apiDocsMarkdown.ts
+// module backing the markdown variant) are not mounted — their content
+// documented the developer/admin/auth/webhook endpoints removed above, and
+// serving that as if it were current would be actively misleading. The
+// module file is left untouched on disk for the same merge-safety reason as
+// the routes above.
 
 // 404 handler
 app.use('*', (req, res) => {
   res.status(404).json({
     error: 'Not Found',
-    message: `Route ${req.method} ${req.originalUrl} not found`,
-    availableEndpoints: '/api/docs'
+    message: `Route ${req.method} ${req.originalUrl} not found`
   });
 });
 

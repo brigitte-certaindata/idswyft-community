@@ -160,6 +160,7 @@ caddy/certs/*.crt
 
 # Claude Code local settings (personal config, MCP servers, output style)
 .claude/
+CLAUDE.local.md
 
 # Internal docs — all markdown (except README.md / CLAUDE.md) lives in docs/
 /docs/
