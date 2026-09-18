@@ -5,6 +5,14 @@
 # shared ECR account already used by identity-verification-app-tf's Bitbucket
 # pipelines. Not synced from upstream, safe to extend freely.
 #
+# Both repos are provisioned by Terraform in the org's own
+# euc1-deployments-repositories repo (repositories_identity_verification.tf,
+# APAY-403), IMMUTABLE - so this file only ever pushes one unique tag per
+# build (the git short SHA), never :latest. Re-pushing an existing tag to an
+# IMMUTABLE repo is rejected, and there is no repo-creation step here anymore
+# - if a push fails because the repo doesn't exist, that's a signal to check
+# whether that Terraform has actually been applied yet, not to add one back.
+#
 # Rationale for the pinned engine image and the ECR account choice:
 # identity-verification-service's ai/60__IDSWYFT_FORK_CHANGES.md.
 #
@@ -30,39 +38,19 @@ tasks:
     cmds:
       - aws ecr get-login-password --region {{.AWS_REGION}} | docker login --username AWS --password-stdin {{.REGISTRY}}
 
-  ensure-repo-capture-api:
-    internal: true
-    desc: "Create the capture-api ECR repo if it doesn't exist yet (idempotent)"
-    cmds:
-      - |
-        aws ecr describe-repositories --region {{.AWS_REGION}} --repository-names {{.CAPTURE_API_REPO}} >/dev/null 2>&1 || \
-        aws ecr create-repository --region {{.AWS_REGION}} --repository-name {{.CAPTURE_API_REPO}} --image-scanning-configuration scanOnPush=true
-
-  ensure-repo-engine:
-    internal: true
-    desc: "Create the engine ECR repo if it doesn't exist yet (idempotent)"
-    cmds:
-      - |
-        aws ecr describe-repositories --region {{.AWS_REGION}} --repository-names {{.ENGINE_REPO}} >/dev/null 2>&1 || \
-        aws ecr create-repository --region {{.AWS_REGION}} --repository-name {{.ENGINE_REPO}} --image-scanning-configuration scanOnPush=true
-
   build-push-capture-api:
-    desc: "Build backend/Dockerfile and push it to ECR, tagged with the commit SHA and :latest"
-    deps: [ecr-login, ensure-repo-capture-api]
+    desc: "Build backend/Dockerfile and push it to ECR, tagged with the commit SHA only"
+    deps: [ecr-login]
     cmds:
       - docker build -f backend/Dockerfile -t {{.REGISTRY}}/{{.CAPTURE_API_REPO}}:{{.IMAGE_TAG}} .
-      - docker tag {{.REGISTRY}}/{{.CAPTURE_API_REPO}}:{{.IMAGE_TAG}} {{.REGISTRY}}/{{.CAPTURE_API_REPO}}:latest
       - docker push {{.REGISTRY}}/{{.CAPTURE_API_REPO}}:{{.IMAGE_TAG}}
-      - docker push {{.REGISTRY}}/{{.CAPTURE_API_REPO}}:latest
 
   build-push-engine:
-    desc: "Build engine/Dockerfile.pinned (our layer over upstream's exact digest) and push it to ECR"
-    deps: [ecr-login, ensure-repo-engine]
+    desc: "Build engine/Dockerfile.pinned (our layer over upstream's exact digest) and push it to ECR, tagged with the commit SHA only"
+    deps: [ecr-login]
     cmds:
       - docker build -f engine/Dockerfile.pinned -t {{.REGISTRY}}/{{.ENGINE_REPO}}:{{.IMAGE_TAG}} engine
-      - docker tag {{.REGISTRY}}/{{.ENGINE_REPO}}:{{.IMAGE_TAG}} {{.REGISTRY}}/{{.ENGINE_REPO}}:latest
       - docker push {{.REGISTRY}}/{{.ENGINE_REPO}}:{{.IMAGE_TAG}}
-      - docker push {{.REGISTRY}}/{{.ENGINE_REPO}}:latest
 
   build-push-all:
     desc: "Build and push both images"
