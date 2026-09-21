@@ -2213,7 +2213,7 @@ router.post('/:verification_id/voice-capture',
         .update({
           status: finalResult,
           manual_review_reason: manualReviewReason,
-          completed_at: new Date().toISOString(),
+          processing_completed_at: new Date().toISOString(),
         })
         .eq('id', verification_id);
     }
@@ -2338,7 +2338,6 @@ router.post('/:verification_id/restart',
       voice_match_score: null,
       voice_challenge: null,
       voice_challenge_created_at: null,
-      completed_at: null,
     }).eq('id', verification_id)
       .eq('retry_count', currentRetryCount)
       .select('id');
