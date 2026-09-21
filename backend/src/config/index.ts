@@ -18,6 +18,8 @@ export const config: AppConfig = {
   apiKeySecret: process.env.API_KEY_SECRET || 'your-api-key-encryption-secret',
   serviceToken: process.env.SERVICE_TOKEN || 'your-service-to-service-token',
   encryptionKey: process.env.ENCRYPTION_KEY || 'your-32-character-encryption-key',
+  // Default false (refresh only). See the AppConfig field doc in types/index.ts.
+  sessionRemintResetProgress: process.env.SESSION_REMINT_RESET_PROGRESS === 'true',
   
   database: {
     url: process.env.DATABASE_URL || 'postgresql://postgres:password@localhost:5432/idswyft'
