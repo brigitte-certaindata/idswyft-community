@@ -129,10 +129,18 @@ async function main() {
     const { rows: applied } = await client.query('SELECT name FROM _migrations ORDER BY name');
     const appliedSet = new Set(applied.map((r: { name: string }) => r.name));
 
-    // Get all .sql files sorted
+    // Filenames mix numeric prefixes (58_...) and 8-digit date prefixes
+    // (20260629_...); a plain string sort puts dated files before numeric
+    // ones ('2' < '5'), even when a numeric one is a dependency. Sort by
+    // the leading digits as a number, falling back to the filename for
+    // ties (e.g. the two files that both start with '04_').
     const files = readdirSync(MIGRATIONS_DIR)
       .filter(f => f.endsWith('.sql'))
-      .sort();
+      .sort((a, b) => {
+        const numA = parseInt(a.match(/^\d+/)?.[0] ?? '0', 10);
+        const numB = parseInt(b.match(/^\d+/)?.[0] ?? '0', 10);
+        return numA - numB || a.localeCompare(b);
+      });
 
     // In Docker (community edition), skip migrations that fail due to missing
     // prerequisites rather than blocking the server from starting.
