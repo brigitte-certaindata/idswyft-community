@@ -69,7 +69,13 @@ RUN sed -i 's/\r$//' ./docker-entrypoint.sh && chmod +x ./docker-entrypoint.sh
 # with nodeuser ownership (Docker copies ownership from image on first mount)
 RUN mkdir -p ./uploads ./temp
 
-# Migrations are bind-mounted from supabase/migrations/ at runtime
+# Migrations are normally bind-mounted from supabase/migrations/ at runtime
+# (docker-compose.yml, local dev) - that bind mount, when present, overrides
+# this at container start, so it's unaffected by baking a copy in here too.
+# Anywhere else this image runs without that bind mount, MIGRATIONS_DIR
+# would otherwise point at a directory that never exists, and
+# docker-entrypoint.sh's auto-migrate step silently no-ops on every boot.
+COPY supabase/migrations ./migrations
 ENV MIGRATIONS_DIR=/app/backend/migrations
 
 RUN chown -R nodeuser:nodeuser /app
