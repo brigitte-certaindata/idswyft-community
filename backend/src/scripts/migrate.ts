@@ -47,6 +47,46 @@ const DATABASE_URL: string = process.env.DATABASE_URL;
 
 const MIGRATIONS_DIR = process.env.MIGRATIONS_DIR || join(__dirname, '../../../supabase/migrations');
 
+// A handful of date-prefixed migrations were created chronologically
+// interleaved with the numeric-prefixed ones (verified against git history -
+// each one's actual first-added commit), but parsing an 8-digit date prefix
+// as one large number (below) pushes all of them to the very end instead of
+// where they're actually needed. Concretely: 20260319_add_webhook_deliveries.sql
+// creates a table 34_enable_rls_all_tables.sql depends on, so running it last
+// breaks migration 34 on any database that hasn't already applied it.
+//
+// Deliberately narrow: only the 6 files below are moved, spliced in right
+// after the numeric migration git history shows they were actually added
+// alongside. Every other file - including two pre-existing, apparently
+// harmless quirks the numeric sort already produces (15_... running after
+// 24_..., 48_... running before 46_...) - keeps its current sort position
+// unchanged, since nothing here has shown those to be broken. A future
+// migration not listed here falls back to today's existing (working)
+// leading-number sort, same as before this fix.
+const DATE_MIGRATION_INSERT_AFTER: Record<string, string> = {
+  '20260319_webhook_api_key_scope.sql': '26_atomic_otp_verify.sql',
+  '20260319_add_webhook_deliveries.sql': '20260319_webhook_api_key_scope.sql',
+  '20260604_fix_webhook_deliveries_id_default.sql': '60_create_avatars_bucket.sql',
+  '20260629_add_operator_email_to_api_keys.sql': '20260604_fix_webhook_deliveries_id_default.sql',
+  '20260629_add_api_key_id_to_verification_requests.sql': '20260629_add_operator_email_to_api_keys.sql',
+  '20260701_add_review_attribution_to_verification_requests.sql': '20260629_add_api_key_id_to_verification_requests.sql',
+};
+
+function applyDateMigrationOverrides(sorted: string[]): string[] {
+  const result = [...sorted];
+  for (const [file, afterFile] of Object.entries(DATE_MIGRATION_INSERT_AFTER)) {
+    const fileIdx = result.indexOf(file);
+    if (fileIdx === -1) continue; // not present - nothing to move
+
+    result.splice(fileIdx, 1);
+    const afterIdx = result.indexOf(afterFile);
+    // Anchor missing (shouldn't happen for the known set) - put it back at
+    // the end rather than silently dropping a migration.
+    result.splice(afterIdx === -1 ? result.length : afterIdx + 1, 0, file);
+  }
+  return result;
+}
+
 // ── Main ────────────────────────────────────────────────────────────────────
 async function main() {
   // SSL handling: aligned with PgClient (backend/src/adapters/pg/PgClient.ts).
@@ -138,13 +178,15 @@ async function main() {
     // ones ('2' < '5'), even when a numeric one is a dependency. Sort by
     // the leading digits as a number, falling back to the filename for
     // ties (e.g. the two files that both start with '04_').
-    const files = readdirSync(MIGRATIONS_DIR)
-      .filter(f => f.endsWith('.sql'))
-      .sort((a, b) => {
-        const numA = parseInt(a.match(/^\d+/)?.[0] ?? '0', 10);
-        const numB = parseInt(b.match(/^\d+/)?.[0] ?? '0', 10);
-        return numA - numB || a.localeCompare(b);
-      });
+    const files = applyDateMigrationOverrides(
+      readdirSync(MIGRATIONS_DIR)
+        .filter(f => f.endsWith('.sql'))
+        .sort((a, b) => {
+          const numA = parseInt(a.match(/^\d+/)?.[0] ?? '0', 10);
+          const numB = parseInt(b.match(/^\d+/)?.[0] ?? '0', 10);
+          return numA - numB || a.localeCompare(b);
+        })
+    );
 
     // In Docker (community edition), skip migrations that fail due to missing
     // prerequisites rather than blocking the server from starting.
