@@ -476,6 +476,10 @@ const MobileVerificationPage: React.FC = () => {
           // Reuse existing verification — already linked in the handoff row
           setVerificationId(data.verification_id);
           setLoading(false);
+          // If it already FAILED (e.g. rejected on a previous attempt), jump
+          // straight to the result screen with Try Again instead of the upload
+          // flow (#53). Only failed — reopening a completed link is unchanged.
+          showResultIfTerminal(data.verification_id, true);
         } else {
           // Legacy path: no pre-existing verification — create one
           initializeVerification(data.user_id, data.source);
@@ -500,6 +504,27 @@ const MobileVerificationPage: React.FC = () => {
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     return res.json();
   }, [token]);
+
+  // #53: if a verification is already terminal (e.g. rejected on a previous
+  // attempt), show the result screen — which offers "Try Again" (POST /restart)
+  // when retries remain — instead of dropping the applicant onto an upload step
+  // or a dead-end error. Returns true when it took over the flow.
+  const showResultIfTerminal = async (id: string, failedOnly = false): Promise<boolean> => {
+    try {
+      const status = await apiGet(`/api/v2/verify/${id}/status`);
+      // On mount we only rescue the FAILED dead-end (#53). Taking over on
+      // verified/manual_review at load would fire the redirect / desktop notify
+      // without the applicant doing anything — a behavior change for reopened links.
+      const terminal = failedOnly ? ['failed'] : ['failed', 'manual_review', 'verified'];
+      if (mountedRef.current && terminal.includes(status?.final_result)) {
+        showFinalResult(status);
+        return true;
+      }
+    } catch {
+      // Status fetch failed — let the caller fall back to its normal path.
+    }
+    return false;
+  };
 
   // ── Step 0: Initialize verification session ────────────────────────────
   const initializeVerification = async (uid: string, source?: string) => {
@@ -607,11 +632,27 @@ const MobileVerificationPage: React.FC = () => {
       const res = await fetch(`${API_BASE_URL}/api/v2/verify/${verificationId}/front-document`, {
         method: 'POST', headers: { 'X-Handoff-Token': token }, body: fd,
       });
-      if (!res.ok) { const e = await res.json(); throw new Error(e.message || 'Upload failed'); }
+      if (!res.ok) {
+        const e = await res.json().catch(() => ({} as any));
+        // Already terminal (e.g. rejected in a previous step) — show the result
+        // screen with Try Again instead of a dead-end error (#53).
+        if ((res.status === 409 || ['failed', 'manual_review'].includes(e?.final_result))
+            && await showResultIfTerminal(verificationId)) {
+          return;
+        }
+        throw new Error(e.message || 'Upload failed');
+      }
       if (!mountedRef.current) return;
       const data = await res.json().catch(() => null);
 
-      // Gate 1 may hard-reject (e.g. image too blurry for OCR) — let user retake
+      // A gate rejection is terminal (the session moves to HARD_REJECTED), so
+      // retaking the same step just hits the 409 guard on the next upload. Show
+      // the result screen with Try Again — a full /restart — instead of prompting
+      // a doomed retake (#53).
+      if (data?.final_result === 'failed' || data?.final_result === 'manual_review') {
+        if (await showResultIfTerminal(verificationId)) return;
+      }
+      // Non-terminal rejection (retakeable): let the user retake the photo.
       if (data?.rejection_reason) {
         setStepError(data.message || 'The photo of your ID is not clear enough. Please retake it in good lighting.');
         setFrontFile(null);
@@ -704,7 +745,16 @@ const MobileVerificationPage: React.FC = () => {
       const res = await fetch(`${API_BASE_URL}/api/v2/verify/${verificationId}/back-document`, {
         method: 'POST', headers: { 'X-Handoff-Token': token }, body: fd,
       });
-      if (!res.ok) { const e = await res.json(); throw new Error(e.message || 'Upload failed'); }
+      if (!res.ok) {
+        const e = await res.json().catch(() => ({} as any));
+        // Already terminal (e.g. rejected in a previous step) — show the result
+        // screen with Try Again instead of a dead-end error (#53).
+        if ((res.status === 409 || ['failed', 'manual_review'].includes(e?.final_result))
+            && await showResultIfTerminal(verificationId)) {
+          return;
+        }
+        throw new Error(e.message || 'Upload failed');
+      }
       if (!mountedRef.current) return;
 
       // For document_only, the back-doc response may already include final_result
@@ -1066,6 +1116,19 @@ const MobileVerificationPage: React.FC = () => {
     if (!mountedRef.current) return;
     setFinalResult(data);
     setScreenIdx(SCREEN_IDX.done);
+
+    // A failed result with retries left isn't terminal for the applicant — keep
+    // them on the result screen so they can Try Again (or Return). Don't redirect
+    // or notify the desktop yet; either would end the flow prematurely (#53).
+    if (data.final_result === 'failed' && data.retry_available === true) return;
+
+    await finalizeAndExit(data);
+  };
+
+  // finalizeAndExit: notify the desktop and leave the flow (redirect + handoff
+  // complete). Split out so the "Return" button on a retryable failure can call
+  // it explicitly after showFinalResult suppresses it for retry (#53).
+  const finalizeAndExit = async (data: any) => {
     const status = data.final_result ?? data.status;
 
     // Start redirect timer immediately (don't block on handoff PATCH retries)
@@ -1714,6 +1777,22 @@ const MobileVerificationPage: React.FC = () => {
                       <PrimaryBtn onClick={handleRetry} disabled={retryProcessing}>
                         {retryProcessing ? 'Restarting…' : 'Try Again'}
                       </PrimaryBtn>
+                      {/* Let an applicant who doesn't want to retry exit — notify
+                          the desktop / redirect (suppressed above to keep them here) (#53). */}
+                      <button
+                        onClick={() => finalizeAndExit(finalResult)}
+                        disabled={retryProcessing}
+                        style={{
+                          width: '100%', marginTop: 10, padding: '12px 20px',
+                          border: '1px solid var(--rule)', background: 'transparent',
+                          color: 'var(--mid)', fontFamily: 'var(--mono)', fontSize: 12,
+                          fontWeight: 500, letterSpacing: '0.04em', textTransform: 'uppercase',
+                          cursor: retryProcessing ? 'not-allowed' : 'pointer', flexShrink: 0,
+                          opacity: retryProcessing ? 0.5 : 1,
+                        }}
+                      >
+                        Return without retrying
+                      </button>
                     </div>
                   )}
                   {isFailed && finalResult.retry_available === false && (
