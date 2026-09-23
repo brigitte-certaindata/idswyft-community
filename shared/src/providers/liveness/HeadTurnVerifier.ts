@@ -1,5 +1,5 @@
 import type { HeadTurnLivenessMetadata, AnalysisFrame } from '../../verification/models/headTurnLivenessSchema.js';
-import type { FaceBufferDetectionResult } from '@/types/faceRecognition.js';
+import type { FaceLandmarksDetectionResult } from '@/types/faceRecognition.js';
 import { logger } from '@/utils/logger.js';
 
 // --- Types ------------------------------------------------
@@ -11,9 +11,11 @@ export interface HeadTurnLivenessResult {
   reason?: string;
 }
 
-/** Minimal interface for the face detection dependency (makes testing easy) */
+/** Minimal interface for the face detection dependency (makes testing easy).
+ *  The head-turn path uses the lighter landmarks-only detection — it never needs
+ *  the face embedding or age/gender, so those are not computed (community #51). */
 export interface FaceDetectionService {
-  detectFaceFromBuffer(buffer: Buffer): Promise<FaceBufferDetectionResult | null>;
+  detectFaceLandmarksFromBuffer(buffer: Buffer): Promise<FaceLandmarksDetectionResult | null>;
 }
 
 // --- Constants --------------------------------------------
@@ -64,7 +66,7 @@ function decodeFrame(base64: string): Buffer {
 
 /** Compute coefficient of variation of face bounding box areas across frames. */
 function computeBboxCV(
-  detections: Array<{ detection: FaceBufferDetectionResult | null }>,
+  detections: Array<{ detection: FaceLandmarksDetectionResult | null }>,
 ): { cv: number; count: number } {
   const areas = detections
     .filter((fd) => fd.detection !== null)
@@ -90,13 +92,15 @@ export async function verifyHeadTurnLiveness(
   // Decode all frames once and detect faces (C2 fix: cache buffers)
   const frameDetections: Array<{
     frame: AnalysisFrame;
-    detection: FaceBufferDetectionResult | null;
+    detection: FaceLandmarksDetectionResult | null;
     buffer: Buffer;
   }> = [];
 
   for (const frame of metadata.frames) {
     const buffer = decodeFrame(frame.frame_base64);
-    const detection = await faceService.detectFaceFromBuffer(buffer);
+    // Landmarks-only detection — the checks below use confidence, landmarks, and
+    // bounding box, never the embedding or age/gender (community #51).
+    const detection = await faceService.detectFaceLandmarksFromBuffer(buffer);
     frameDetections.push({ frame, detection, buffer });
   }
 

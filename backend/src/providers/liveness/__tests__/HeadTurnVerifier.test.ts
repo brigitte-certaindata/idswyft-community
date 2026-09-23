@@ -52,7 +52,8 @@ function createMockFaceService(
 ): FaceDetectionService {
   let callIndex = 0;
   return {
-    detectFaceFromBuffer: vi.fn().mockImplementation(async () => {
+    // The head-turn verifier now uses the landmarks-only detection path (#51).
+    detectFaceLandmarksFromBuffer: vi.fn().mockImplementation(async () => {
       const result = detections[callIndex % detections.length];
       callIndex++;
       return result;
