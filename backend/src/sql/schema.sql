@@ -89,7 +89,7 @@ CREATE TABLE IF NOT EXISTS webhooks (
     developer_id UUID NOT NULL REFERENCES developers(id) ON DELETE CASCADE,
     url TEXT NOT NULL,
     is_sandbox BOOLEAN DEFAULT FALSE,
-    secret_token VARCHAR(255),
+    secret_key VARCHAR(255),
     is_active BOOLEAN DEFAULT TRUE,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );

@@ -77,10 +77,14 @@ export class WebhookService {
     // Writing `secret_token` directly threw `column "secret_token" does not exist`
     // on any fresh database (community #58). The read path already tolerates both.
     const insertData: Record<string, any> = { ...data };
+    // Map secret_token onto secret_key only when a value is present, then ALWAYS
+    // strip secret_token. Leaving the key with an `undefined` value still lists
+    // the nonexistent `secret_token` column on the community PgClient adapter,
+    // whose column list comes from Object.keys — that is the #58 no-secret repro.
     if (insertData.secret_token) {
       insertData.secret_key = encryptWebhookSecret(insertData.secret_token);
-      delete insertData.secret_token;
     }
+    delete insertData.secret_token;
 
     const { data: webhook, error } = await supabase
       .from('webhooks')
@@ -156,10 +160,12 @@ export class WebhookService {
   async updateWebhook(id: string, updates: Partial<Webhook>): Promise<Webhook> {
     // Map secret_token → the actual secret_key column on write (see createWebhook).
     const safeUpdates: Record<string, any> = { ...updates };
+    // Same rule as createWebhook: map only when present, but always strip
+    // secret_token so an undefined key can't list the nonexistent column.
     if (safeUpdates.secret_token) {
       safeUpdates.secret_key = encryptWebhookSecret(safeUpdates.secret_token);
-      delete safeUpdates.secret_token;
     }
+    delete safeUpdates.secret_token;
 
     const { data: webhook, error } = await supabase
       .from('webhooks')
@@ -215,10 +221,72 @@ export class WebhookService {
     this.deliverWebhook(delivery as WebhookDelivery, webhook).catch(error => {
       logger.error('Webhook delivery failed:', error);
     });
-    
+
     return delivery as WebhookDelivery;
   }
-  
+
+  /**
+   * Send a one-off *test* delivery without persisting a webhook_deliveries row.
+   *
+   * `webhook_deliveries.verification_request_id` is NOT NULL with a foreign key
+   * to `verification_requests(id)`. A test has no real verification to point at,
+   * so persisting a synthetic delivery always failed the FK — the test endpoint
+   * could never work (community #58, part 2). Fire the HTTP POST directly using
+   * the same headers, signature, and SSRF guard a real delivery uses, and report
+   * the result without touching the database.
+   */
+  async sendTestWebhook(
+    webhook: Webhook,
+    payload: WebhookPayload,
+  ): Promise<{ delivered: boolean; response_status: number; error?: string }> {
+    const deliveryId = `test-${crypto.randomUUID()}`;
+    const headers = buildWebhookHeaders(webhook, deliveryId, 1, payload);
+    headers['X-Idswyft-Test'] = 'true';
+
+    // Sign with the decrypted secret so receivers can verify the test the same
+    // way they verify real deliveries. decryptWebhookSecret tolerates both the
+    // encrypted (service-layer) and legacy-plaintext storage conventions.
+    const rawSecret = webhook.secret_key || webhook.secret_token;
+    if (rawSecret) {
+      const signingSecret = decryptWebhookSecret(rawSecret);
+      if (signingSecret) {
+        headers['X-Idswyft-Signature'] = this.generateSignature(
+          JSON.stringify(payload),
+          signingSecret,
+        );
+      }
+    }
+
+    // Re-validate the URL at send time (same SSRF guard as real deliveries).
+    // An SsrfError is a developer-visible reason; anything else is rethrown.
+    try {
+      await validateWebhookUrl(webhook.url);
+    } catch (err: any) {
+      if (err instanceof SsrfError) {
+        return { delivered: false, response_status: 0, error: `URL rejected by SSRF guard: ${err.message}` };
+      }
+      throw err;
+    }
+
+    try {
+      const response = await axios.post(webhook.url, payload, {
+        headers,
+        timeout: config.webhooks.timeoutMs,
+        maxRedirects: 0,
+        httpAgent: getSafeHttpAgent(),
+        httpsAgent: getSafeHttpsAgent(),
+        validateStatus: () => true, // report any status; never throw on HTTP status
+      });
+      return { delivered: response.status < 400, response_status: response.status };
+    } catch (error: any) {
+      return {
+        delivered: false,
+        response_status: error.response?.status ?? 0,
+        error: error.message,
+      };
+    }
+  }
+
   private async deliverWebhook(delivery: WebhookDelivery, webhook: Webhook): Promise<void> {
     const maxAttempts = config.webhooks.retryAttempts;
     let attempt = delivery.attempts + 1;

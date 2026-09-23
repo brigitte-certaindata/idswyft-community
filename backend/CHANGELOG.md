@@ -5,6 +5,25 @@ All notable changes to the Idswyft Main API are documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.12.30] - 2026-09-23
+
+Completes community #58 (reported by `ClausSBG`).
+
+### Fixed
+- **Webhook registration still failed with no secret on self-hosted** (`backend`,
+  community #58, part 1 follow-up): v1.12.29 stripped `secret_token` only when a
+  secret was supplied. With no secret, the key survived as `undefined`, and the
+  community PgClient adapter (which builds its INSERT column list from
+  `Object.keys`) still emitted `column "secret_token" does not exist`. Strip
+  `secret_token` unconditionally on write. Also aligned `backend/src/sql/schema.sql`
+  (legacy `db:setup` path) to `secret_key`, removing the drift from migration 01.
+- **`POST /api/webhooks/:id/test` could never fire** (`backend`, community #58,
+  part 2): the route persisted a `webhook_deliveries` row with a synthetic
+  `verification_id`, but `verification_request_id` is NOT NULL with an FK to
+  `verification_requests`, so every insert failed. Added
+  `WebhookService.sendTestWebhook`, which signs and POSTs the test directly
+  (with the SSRF guard) and reports the result without writing to the database.
+
 ## [1.12.29] - 2026-09-23
 
 Community contribution from `ClausSBG`, reviewed and ported.
