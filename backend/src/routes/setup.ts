@@ -9,6 +9,11 @@ import { logger } from '@/utils/logger.js';
 
 const router = Router();
 
+// Migration 58 seeds two synthetic "shadow developer" rows for internal
+// service-key support, present on every self-hosted instance. Both checks
+// below exclude them rather than counting them as "a developer exists".
+const SHADOW_DEVELOPER_EMAIL_PATTERN = 'service+%@idswyft.app';
+
 const setupRateLimit = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 5,
@@ -31,7 +36,8 @@ router.get('/status', catchAsync(async (_req: Request, res: Response) => {
 
   const { count, error } = await supabase
     .from('developers')
-    .select('*', { count: 'exact', head: true });
+    .select('*', { count: 'exact', head: true })
+    .not('email', 'like', SHADOW_DEVELOPER_EMAIL_PATTERN);
 
   if (error) {
     logger.error('Setup status check failed', { error });
@@ -54,10 +60,11 @@ router.post('/initialize',
   ],
   validate,
   catchAsync(async (req: Request, res: Response) => {
-    // First-run guard: only works when zero developers exist
+    // First-run guard: only works when zero real developers exist
     const { count, error: countError } = await supabase
       .from('developers')
-      .select('*', { count: 'exact', head: true });
+      .select('*', { count: 'exact', head: true })
+      .not('email', 'like', SHADOW_DEVELOPER_EMAIL_PATTERN);
 
     if (countError) {
       logger.error('Setup guard check failed', { error: countError });
