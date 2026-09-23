@@ -2,7 +2,7 @@ import express, { Request, Response } from 'express';
 import multer from 'multer';
 import { body, param } from 'express-validator';
 import crypto from 'crypto';
-import { authenticateAPIKeyOrHandoff, authenticateUser, checkSandboxMode, hashHandoffToken } from '@/middleware/auth.js';
+import { authenticateAPIKeyOrHandoff, authenticateServiceToken, authenticateUser, checkSandboxMode, hashHandoffToken } from '@/middleware/auth.js';
 import { verificationRateLimit } from '@/middleware/rateLimit.js';
 import { idempotencyMiddleware } from '@/middleware/idempotency.js';
 import { catchAsync, ValidationError, FileUploadError } from '@/middleware/errorHandler.js';
@@ -2386,6 +2386,99 @@ router.post('/:verification_id/restart',
     broadcastStatusChange(
       verification_id, 'AWAITING_FRONT', 1, null, null
     ).catch(() => {});
+  })
+);
+
+// ─── Internal: re-mint a session against an existing verification ────────
+// Mints a fresh session token for an existing, non-terminal verification.
+// Service-token auth only, called by our capture-link resolver, never an
+// integrator or browser. Optional progress wipe via
+// config.sessionRemintResetProgress (see types/index.ts), default off.
+router.post('/:verification_id/internal/session',
+  authenticateServiceToken,
+  [
+    param('verification_id').isUUID().withMessage('Invalid verification ID'),
+  ],
+  validate,
+  catchAsync(async (req: Request, res: Response) => {
+    const { verification_id } = req.params;
+    const resetProgress = config.sessionRemintResetProgress;
+
+    const sessionToken = crypto.randomBytes(32).toString('hex');
+    const sessionTokenHash = hashHandoffToken(sessionToken);
+    const sessionTokenExpiresAt = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
+
+    // session_api_key_id is left untouched; only the token/expiry rotate.
+    // `.not('status', 'in', ...)` makes the terminal-status check atomic
+    // with the write.
+    const updatePayload: Record<string, unknown> = {
+      session_token_hash: sessionTokenHash,
+      session_token_expires_at: sessionTokenExpiresAt.toISOString(),
+    };
+    if (resetProgress) {
+      Object.assign(updatePayload, {
+        status: 'pending',
+        face_match_score: null,
+        liveness_score: null,
+        cross_validation_score: null,
+        failure_reason: null,
+        processing_completed_at: null,
+        document_id: null,
+        selfie_id: null,
+        duplicate_flags: null,
+        voice_match_score: null,
+        voice_challenge: null,
+        voice_challenge_created_at: null,
+      });
+    }
+
+    const { data: updated, error } = await supabase
+      .from('verification_requests')
+      .update(updatePayload)
+      .eq('id', verification_id)
+      .not('status', 'in', '("verified","failed","manual_review")')
+      .select('id')
+      .single();
+
+    if (error || !updated) {
+      return res.status(404).json({
+        success: false,
+        message: 'Verification not found, or already finished — capture link is no longer valid',
+      });
+    }
+
+    if (resetProgress) {
+      // No resume: wipe in-progress capture so the next open starts clean.
+      // Scoped to this reset only, not a general abandoned-session sweep.
+      await Promise.all([
+        supabase.from('documents').delete().eq('verification_request_id', verification_id),
+        supabase.from('selfies').delete().eq('verification_request_id', verification_id),
+        supabase.from('verification_risk_scores').delete().eq('verification_request_id', verification_id),
+        supabase.from('verification_contexts').delete().eq('verification_id', verification_id),
+        supabase.from('dedup_fingerprints').delete().eq('verification_request_id', verification_id),
+      ]);
+    }
+
+    logVerificationEvent('verification_session_reminted', verification_id, { resetProgress });
+
+    const frontendBase = process.env.FRONTEND_URL
+      || req.headers.origin
+      || req.headers.referer?.replace(/\/[^/]*$/, '')
+      || `${req.protocol}://${req.get('host')}`;
+
+    res.json({
+      success: true,
+      verification_id,
+      session_token: sessionToken,
+      session_token_expires_at: sessionTokenExpiresAt.toISOString(),
+      verification_url: `${frontendBase}/user-verification?session=${sessionToken}`,
+    });
+
+    if (resetProgress) {
+      broadcastStatusChange(
+        verification_id, 'AWAITING_FRONT', 1, null, null
+      ).catch(() => {});
+    }
   })
 );
 
