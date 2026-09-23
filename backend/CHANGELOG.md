@@ -5,6 +5,22 @@ All notable changes to the Idswyft Main API are documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.12.32] - 2026-09-23
+
+### Changed
+- **Landmarks-only face detection on the head-turn liveness path** (`engine` +
+  `backend` + `shared`, community #51): the head-turn verifier ran the full
+  face-api chain (detect → landmarks → 128-d descriptor → age/gender) for every
+  frame, but only uses confidence, landmarks, and the bounding box. On the WASM
+  backend the full chain degraded after prolonged uptime and returned null for
+  all frames, failing the challenge with `0/N frames have faces` until the engine
+  container was restarted. Added `detectFaceLandmarksFromBuffer`
+  (`detectSingleFace().withFaceLandmarks()` only — two fewer model inferences per
+  frame) and pointed `HeadTurnVerifier` at it; face matching still uses the full
+  `detectFaceFromBuffer`. Also log TF.js tensor memory around the detection loop
+  so the suspected leak is visible without waiting hours for a restart. Reported
+  by `ClausSBG`.
+
 ## [1.12.31] - 2026-09-23
 
 ### Fixed
