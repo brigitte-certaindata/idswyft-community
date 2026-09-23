@@ -77,10 +77,14 @@ export class WebhookService {
     // Writing `secret_token` directly threw `column "secret_token" does not exist`
     // on any fresh database (community #58). The read path already tolerates both.
     const insertData: Record<string, any> = { ...data };
+    // Map secret_token onto secret_key only when a value is present, then ALWAYS
+    // strip secret_token. Leaving the key with an `undefined` value still lists
+    // the nonexistent `secret_token` column on the community PgClient adapter,
+    // whose column list comes from Object.keys — that is the #58 no-secret repro.
     if (insertData.secret_token) {
       insertData.secret_key = encryptWebhookSecret(insertData.secret_token);
-      delete insertData.secret_token;
     }
+    delete insertData.secret_token;
 
     const { data: webhook, error } = await supabase
       .from('webhooks')
@@ -156,10 +160,12 @@ export class WebhookService {
   async updateWebhook(id: string, updates: Partial<Webhook>): Promise<Webhook> {
     // Map secret_token → the actual secret_key column on write (see createWebhook).
     const safeUpdates: Record<string, any> = { ...updates };
+    // Same rule as createWebhook: map only when present, but always strip
+    // secret_token so an undefined key can't list the nonexistent column.
     if (safeUpdates.secret_token) {
       safeUpdates.secret_key = encryptWebhookSecret(safeUpdates.secret_token);
-      delete safeUpdates.secret_token;
     }
+    delete safeUpdates.secret_token;
 
     const { data: webhook, error } = await supabase
       .from('webhooks')

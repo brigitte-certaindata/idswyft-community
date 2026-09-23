@@ -149,6 +149,43 @@ describe('buildWebhookHeaders', () => {
   });
 });
 
+// community #58 part 1: the write path must never reference the nonexistent
+// `secret_token` column — not even as an undefined-valued key, which the
+// community PgClient adapter still turns into a column in its INSERT list.
+describe('WebhookService.createWebhook secret mapping', () => {
+  function mockInsertCapture() {
+    let captured: any;
+    (supabase.from as any).mockReturnValue({
+      insert: (payload: any) => {
+        captured = payload;
+        return { select: () => ({ single: () => ({ data: { id: 'wh', ...payload }, error: null }) }) };
+      },
+    });
+    return () => captured;
+  }
+
+  it('omits secret_token entirely when no secret is supplied (no-secret repro)', async () => {
+    vi.clearAllMocks();
+    const captured = mockInsertCapture();
+    await new WebhookService().createWebhook({
+      developer_id: 'd', url: 'https://x.example.com/h', is_sandbox: false,
+    });
+    expect('secret_token' in captured()).toBe(false);
+    expect('secret_key' in captured()).toBe(false);
+  });
+
+  it('maps a supplied secret onto secret_key and drops secret_token', async () => {
+    vi.clearAllMocks();
+    const captured = mockInsertCapture();
+    await new WebhookService().createWebhook({
+      developer_id: 'd', url: 'https://x.example.com/h', is_sandbox: false, secret_token: 'whsec_abc123',
+    });
+    expect('secret_token' in captured()).toBe(false);
+    expect(typeof captured().secret_key).toBe('string');
+    expect(captured().secret_key).not.toBe('whsec_abc123'); // stored encrypted, not plaintext
+  });
+});
+
 // community #58 part 2: the /test endpoint must NOT persist a webhook_deliveries
 // row, or the NOT-NULL FK on verification_request_id rejects the insert and the
 // test can never fire.
