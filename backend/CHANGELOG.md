@@ -5,6 +5,23 @@ All notable changes to the Idswyft Main API are documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.12.31] - 2026-09-23
+
+### Fixed
+- **Rejected hosted-page applicants could not restart** (`backend` + `frontend`,
+  community #53): a verification that hard-rejected mid-flow left the applicant
+  stuck — the "Try Again" control (`POST /:id/restart`) only rendered on the
+  terminal result screen, but the `already rejected` 409 surfaced during a step
+  upload. The hosted desktop (`EndUserVerification`) and phone
+  (`MobileVerificationPage`) flows now detect a terminal state on mount and on an
+  upload rejection and show the result screen with Try Again (plus a "Return
+  without retrying" exit). On the backend, `/restart` deletes the session context
+  (`verification_contexts`), so a restarted verification lost its `issuing_country`
+  and a non-US document would re-fail on the US extractor. Resolve the
+  front-document country from `verification_requests.issuing_country` as a fallback
+  and restore it in `hydrateSession`, so the "set `issuing_country` at
+  `/initialize`" path survives a restart.
+
 ## [1.12.30] - 2026-09-23
 
 Completes community #58 (reported by `ClausSBG`).
