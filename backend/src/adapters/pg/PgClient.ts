@@ -38,7 +38,15 @@ export class PgClient {
       idleTimeoutMillis: 30000,
       connectionTimeoutMillis: 10000,
       ...(process.env.DATABASE_SSL !== 'false' && !isLocalConnection
-        ? { ssl: { rejectUnauthorized: process.env.DATABASE_SSL_REJECT_UNAUTHORIZED !== 'false' } }
+        ? {
+            ssl: {
+              rejectUnauthorized: process.env.DATABASE_SSL_REJECT_UNAUTHORIZED !== 'false',
+              // Optional: trust a specific CA (e.g. a self-signed cert on a
+              // self-hosted Postgres) without disabling verification
+              // altogether via DATABASE_SSL_REJECT_UNAUTHORIZED=false.
+              ...(process.env.DATABASE_SSL_CA_PEM ? { ca: process.env.DATABASE_SSL_CA_PEM } : {}),
+            },
+          }
         : {}),
     });
   }
