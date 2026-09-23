@@ -166,7 +166,7 @@ async function hydrateSession(verificationId: string, isSandbox: boolean, develo
   let resolvedDeveloperId = developerId;
   const { data: row, error: rowError } = await supabase
     .from('verification_requests')
-    .select('developer_id, verification_mode')
+    .select('developer_id, verification_mode, issuing_country')
     .eq('id', verificationId)
     .single();
   if (rowError) {
@@ -176,6 +176,13 @@ async function hydrateSession(verificationId: string, isSandbox: boolean, develo
   }
   if (!resolvedDeveloperId && row?.developer_id) {
     resolvedDeveloperId = row.developer_id;
+  }
+  // Restore issuing_country from the durable verification_requests row when the
+  // session state doesn't carry it — e.g. after /restart deletes the session
+  // context. Without this, a restarted non-US verification loses its country
+  // and re-fails on the US extractor (community #53).
+  if (!hydration.issuing_country && row?.issuing_country) {
+    hydration.issuing_country = row.issuing_country;
   }
 
   // Look up developer's settings (aml_enabled, voice_auth_enabled)
@@ -1225,10 +1232,16 @@ router.post('/:verification_id/front-document',
     } as any);
 
     // Resolve issuing_country: per-request override > session state (stored at
-    // /initialize). Without the session fallback, a caller who set the country
-    // only at init loses it here and non-MRZ documents fall through to the US
-    // extractor (community #54).
-    const resolvedCountry = issuing_country?.toUpperCase() || earlyState?.issuing_country || undefined;
+    // /initialize) > the verification_requests row. Without the session fallback,
+    // a caller who set the country only at init loses it here and non-MRZ
+    // documents fall through to the US extractor (community #54). The row is the
+    // last resort because /restart deletes the session context (verification_contexts),
+    // so after a retry earlyState is null — without it, a restarted non-US
+    // verification would re-fail identically (community #53).
+    const resolvedCountry = issuing_country?.toUpperCase()
+      || earlyState?.issuing_country
+      || (verification as any).issuing_country
+      || undefined;
 
     // Look up developer's LLM config for enhanced OCR extraction
     const developerId = (req as any).developer.id;
