@@ -75,11 +75,14 @@ export interface FaceDetectionResult {
   embedding: number[] | null;
 }
 
-export interface FaceBufferDetectionResult {
+export interface FaceLandmarksDetectionResult {
   confidence: number;
-  embedding: Float32Array;
   landmarks: Array<{ x: number; y: number }>;
   boundingBox: { x: number; y: number; width: number; height: number };
+}
+
+export interface FaceBufferDetectionResult extends FaceLandmarksDetectionResult {
+  embedding: Float32Array;
   age?: number;
   gender?: string;
 }
@@ -209,6 +212,74 @@ export class FaceRecognitionService {
         error: error instanceof Error ? error.message : String(error),
       });
       return null;
+    }
+  }
+
+  /**
+   * Landmarks-only detection for the head-turn liveness path.
+   *
+   * Runs only detectSingleFace().withFaceLandmarks() — it skips
+   * withFaceDescriptor() (the 128-d embedding) and withAgeAndGender(), which the
+   * head-turn verifier never uses. That cuts two model inferences per frame on
+   * the WASM backend, where the full chain degraded after prolonged uptime and
+   * started returning null for every frame (community #51).
+   *
+   * Kept null-on-error (with the error logged), matching detectFaceFromBuffer's
+   * contract. Distinguishing a detection error from "no face" (e.g. surfacing it
+   * as a retryable failure) is a separate design decision, deferred — see #51.
+   */
+  async detectFaceLandmarksFromBuffer(buffer: Buffer): Promise<FaceLandmarksDetectionResult | null> {
+    try {
+      await this.initialize();
+
+      const tensor = await bufferToTensor(buffer);
+
+      try {
+        const result = await faceapi
+          .detectSingleFace(tensor as any, new faceapi.SsdMobilenetv1Options({ minConfidence: 0.3 }))
+          .withFaceLandmarks();
+
+        if (!result) return null;
+
+        const landmarks = result.landmarks.positions.map((pt: any) => ({
+          x: pt.x ?? pt._x,
+          y: pt.y ?? pt._y,
+        }));
+
+        const box = result.detection.box;
+
+        return {
+          confidence: result.detection.score,
+          landmarks,
+          boundingBox: {
+            x: box.x,
+            y: box.y,
+            width: box.width,
+            height: box.height,
+          },
+        };
+      } finally {
+        tensor.dispose();
+      }
+    } catch (error) {
+      logger.error('Landmarks-only face detection from buffer failed', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return null;
+    }
+  }
+
+  /**
+   * Snapshot of the TF.js backend's tensor memory. Logged around the head-turn
+   * detection loop so a leak (the suspected #51 root cause) is visible in one log
+   * line instead of only via "the engine needs a restart" after hours of uptime.
+   */
+  tensorMemory(): { numTensors: number; numBytes: number } {
+    try {
+      const mem = (faceapi.tf as any).memory?.();
+      return { numTensors: mem?.numTensors ?? -1, numBytes: mem?.numBytes ?? -1 };
+    } catch {
+      return { numTensors: -1, numBytes: -1 };
     }
   }
 }

@@ -504,13 +504,23 @@ router.post('/live', upload.single('file'), async (req: Request, res: Response) 
 
     if (headTurnMetadata) {
       try {
+        // #51: snapshot TF.js tensor memory across the per-frame detection loop.
+        // A steady climb here is the signature of the WASM leak that made
+        // detection return null for every frame after prolonged uptime.
+        const memBefore = faceRecognitionService.tensorMemory();
         const headTurnResult = await verifyHeadTurnLiveness(headTurnMetadata, faceRecognitionService);
+        const memAfter = faceRecognitionService.tensorMemory();
         livenessScore = headTurnResult.score;
         livenessPassed = headTurnResult.passed;
         logger.info('Head-turn liveness verification complete', {
           score: livenessScore.toFixed(3),
           passed: livenessPassed,
           reason: headTurnResult.reason,
+          frames: headTurnMetadata.frames.length,
+          tensorsBefore: memBefore.numTensors,
+          tensorsAfter: memAfter.numTensors,
+          tensorsLeaked: memAfter.numTensors - memBefore.numTensors,
+          bytesAfter: memAfter.numBytes,
         });
       } catch (err) {
         logger.error('Head-turn liveness verifier failed, falling back to passive', { error: err });

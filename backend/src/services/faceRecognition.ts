@@ -89,11 +89,14 @@ export interface FaceDetectionResult {
   embedding: number[] | null;
 }
 
-export interface FaceBufferDetectionResult {
+export interface FaceLandmarksDetectionResult {
   confidence: number;
-  embedding: Float32Array;
   landmarks: Array<{ x: number; y: number }>;
   boundingBox: { x: number; y: number; width: number; height: number };
+}
+
+export interface FaceBufferDetectionResult extends FaceLandmarksDetectionResult {
+  embedding: Float32Array;
   age?: number;
   gender?: string;
 }
@@ -289,6 +292,53 @@ export class FaceRecognitionService {
       }
     } catch (error) {
       logger.error('Face detection from buffer failed', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return null;
+    }
+  }
+
+  /**
+   * Landmarks-only detection for the head-turn liveness path — skips the 128-d
+   * descriptor the head-turn verifier never uses (community #51). Mirrors the
+   * engine implementation; kept null-on-error (logged), matching
+   * detectFaceFromBuffer's contract (error-vs-no-face distinction deferred, #51).
+   */
+  async detectFaceLandmarksFromBuffer(buffer: Buffer): Promise<FaceLandmarksDetectionResult | null> {
+    try {
+      await this.initialize();
+
+      const tensor = await bufferToTensor(buffer);
+
+      try {
+        const result = await faceapi
+          .detectSingleFace(tensor as any, new faceapi.SsdMobilenetv1Options({ minConfidence: 0.3 }))
+          .withFaceLandmarks();
+
+        if (!result) return null;
+
+        const landmarks = result.landmarks.positions.map((pt: any) => ({
+          x: pt.x ?? pt._x,
+          y: pt.y ?? pt._y,
+        }));
+
+        const box = result.detection.box;
+
+        return {
+          confidence: result.detection.score,
+          landmarks,
+          boundingBox: {
+            x: box.x,
+            y: box.y,
+            width: box.width,
+            height: box.height,
+          },
+        };
+      } finally {
+        tensor.dispose();
+      }
+    } catch (error) {
+      logger.error('Landmarks-only face detection from buffer failed', {
         error: error instanceof Error ? error.message : String(error),
       });
       return null;
