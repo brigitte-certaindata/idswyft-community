@@ -5,6 +5,34 @@ All notable changes to the Idswyft Main API are documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.12.28] - 2026-09-23
+
+Community contributions from `brigitte-certaindata`, reviewed and ported.
+
+### Fixed
+- **Migration ordering on fresh installs** (`backend`, community #61): `migrate.ts`
+  sorted filenames with a plain string sort, so 8-digit date-prefixed migrations
+  (`20260629_…`) ran before numeric ones (`58_…`) they depend on. Sort by leading
+  digits numerically. Also excludes the migration-58 shadow developer rows
+  (`service+%@idswyft.app`) from the first-run setup guard, which otherwise made a
+  fresh self-host think setup was already done.
+- **`completed_at` write errors** (`backend`, community #62): `verification_requests`
+  has no `completed_at` column (only `processing_completed_at`); the voice-capture
+  completion and restart-reset paths wrote it and threw `42703`. Corrected both.
+
+### Added
+- **Re-mint a session token on an existing verification** (`backend`, community #59):
+  `POST /:verification_id/internal/session` issues a fresh session token for a
+  non-terminal verification so a long-lived capture link can be reopened without a
+  new `verification_id`. Service-token auth only; terminal-status check is atomic
+  with the write; optional progress wipe gated behind `SESSION_REMINT_RESET_PROGRESS`
+  (default false).
+- **Abandoned-capture image purge** (`backend`, community #60):
+  `DataRetentionService.runAbandonedCaptureCleanup` (hourly) deletes images left by
+  captures whose hosted-page session expired before completing. Scoped to
+  non-terminal, expired-session verifications; completed verifications and the
+  `verification_requests` audit row are untouched.
+
 ## [1.12.27] - 2026-09-11
 
 ### Changed

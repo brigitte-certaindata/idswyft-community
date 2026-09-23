@@ -271,6 +271,11 @@ export interface AppConfig {
   apiKeySecret: string;
   serviceToken: string;
   encryptionKey: string;
+  // If true, re-minting a session (POST /:id/internal/session) wipes any
+  // in-progress capture instead of just refreshing the token. Default false
+  // (no behavior change); set true for a long-lived/shared capture link so
+  // re-opens start clean and abandoned captures are safe to delete.
+  sessionRemintResetProgress: boolean;
   database: {
     url: string;
   };

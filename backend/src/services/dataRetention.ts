@@ -185,6 +185,52 @@ export class DataRetentionService {
   }
 
   /**
+   * Purge document/selfie images (and session/biometric state) for a capture
+   * abandoned mid-flow, once its session token has expired. Only touches
+   * pending/processing verifications; the verification_requests row itself
+   * is left alone.
+   */
+  async runAbandonedCaptureCleanup(): Promise<number> {
+    const { data: abandoned } = await supabase
+      .from('verification_requests')
+      .select('id')
+      .in('status', ['pending', 'processing'])
+      .not('session_token_expires_at', 'is', null)
+      .lt('session_token_expires_at', new Date().toISOString());
+
+    if (!abandoned?.length) return 0;
+    const ids = abandoned.map((v: any) => v.id);
+
+    const { data: docs } = await supabase
+      .from('documents').select('file_path')
+      .in('verification_request_id', ids)
+      .not('file_path', 'is', null);
+
+    for (const doc of docs ?? []) {
+      await this.storageService.deleteFile(doc.file_path).catch(() => {});
+    }
+
+    const { data: selfies } = await supabase
+      .from('selfies').select('file_path')
+      .in('verification_request_id', ids)
+      .not('file_path', 'is', null);
+
+    for (const s of selfies ?? []) {
+      await this.storageService.deleteFile(s.file_path).catch(() => {});
+    }
+
+    await supabase.from('documents').delete().in('verification_request_id', ids);
+    await supabase.from('selfies').delete().in('verification_request_id', ids);
+    await supabase.from('verification_contexts').delete().in('verification_id', ids);
+
+    logger.info(`Abandoned capture cleanup: ${ids.length} verifications purged`, {
+      count: ids.length,
+    });
+
+    return ids.length;
+  }
+
+  /**
    * Nullify PII in webhook_deliveries payloads older than `retentionDays`.
    * Preserves the delivery audit trail (status, timestamps, attempts) but
    * removes OCR data, names, DOB, and document numbers from the payload.

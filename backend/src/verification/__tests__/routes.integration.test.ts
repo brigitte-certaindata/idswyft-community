@@ -156,6 +156,7 @@ const mockApiKeyAuth = (req: any, _res: any, next: any) => {
 vi.mock('@/middleware/auth.js', () => ({
   authenticateAPIKey: mockApiKeyAuth,
   authenticateAPIKeyOrHandoff: mockApiKeyAuth,
+  authenticateServiceToken: (_req: any, _res: any, next: any) => next(),
   authenticateUser: (_req: any, _res: any, next: any) => next(),
   checkSandboxMode: (_req: any, _res: any, next: any) => next(),
   hashHandoffToken: (token: string) => 'mock_hash_' + token.substring(0, 8),
