@@ -255,20 +255,25 @@ router.post('/:webhookId/test',
       }
     };
     
-    const delivery = await webhookService.sendWebhook(webhook, 'test-verification-456', testPayload);
-    
+    // Fire directly — no webhook_deliveries row, so the NOT-NULL FK on
+    // verification_request_id can't reject the insert (community #58, part 2).
+    const result = await webhookService.sendTestWebhook(webhook, testPayload);
+
     logger.info('Test webhook sent', {
       developerId,
       webhookId,
-      deliveryId: delivery.id
+      delivered: result.delivered,
+      responseStatus: result.response_status
     });
-    
+
     res.json({
-      message: 'Test webhook sent',
-      delivery: {
-        id: delivery.id,
-        status: delivery.status,
-        created_at: delivery.created_at
+      message: result.delivered
+        ? 'Test webhook delivered'
+        : 'Test webhook sent, but the endpoint did not accept it',
+      result: {
+        delivered: result.delivered,
+        response_status: result.response_status,
+        ...(result.error ? { error: result.error } : {})
       },
       payload: testPayload
     });
