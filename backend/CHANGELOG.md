@@ -5,6 +5,18 @@ All notable changes to the Idswyft Main API are documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 This project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.12.29] - 2026-09-23
+
+Community contribution from `ClausSBG`, reviewed and ported.
+
+### Fixed
+- **Webhook registration failed on fresh installs** (`backend`, community #58):
+  `WebhookService.createWebhook` and `updateWebhook` wrote to `secret_token`, but
+  the `webhooks` table column is `secret_key` (migration 01). Postgres rejected the
+  insert with `column "secret_token" does not exist`, so `POST /webhooks/register`
+  never stored a webhook. Map `secret_token` onto the `secret_key` column on write
+  (encrypted); the delivery/signing path already reads and decrypts `secret_key`.
+
 ## [1.12.28] - 2026-09-23
 
 Community contributions from `brigitte-certaindata`, reviewed and ported.

@@ -72,10 +72,14 @@ export class WebhookService {
     events?: string[];
     api_key_id?: string | null;
   }): Promise<Webhook> {
-    // Encrypt secret_token before persisting
-    const insertData = { ...data };
+    // The webhooks table column is `secret_key` (migration 01); the service/API
+    // layer uses `secret_token`. Map it onto the real column on write, encrypted.
+    // Writing `secret_token` directly threw `column "secret_token" does not exist`
+    // on any fresh database (community #58). The read path already tolerates both.
+    const insertData: Record<string, any> = { ...data };
     if (insertData.secret_token) {
-      insertData.secret_token = encryptWebhookSecret(insertData.secret_token);
+      insertData.secret_key = encryptWebhookSecret(insertData.secret_token);
+      delete insertData.secret_token;
     }
 
     const { data: webhook, error } = await supabase
@@ -150,10 +154,11 @@ export class WebhookService {
   }
   
   async updateWebhook(id: string, updates: Partial<Webhook>): Promise<Webhook> {
-    // Encrypt secret_token if being updated
-    const safeUpdates = { ...updates };
+    // Map secret_token → the actual secret_key column on write (see createWebhook).
+    const safeUpdates: Record<string, any> = { ...updates };
     if (safeUpdates.secret_token) {
-      safeUpdates.secret_token = encryptWebhookSecret(safeUpdates.secret_token);
+      safeUpdates.secret_key = encryptWebhookSecret(safeUpdates.secret_token);
+      delete safeUpdates.secret_token;
     }
 
     const { data: webhook, error } = await supabase
