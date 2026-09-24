@@ -73,9 +73,16 @@ async function main() {
     DATABASE_URL.includes('@postgres:');
   const useSSL = databaseSsl !== 'false' && (databaseSsl === 'true' || !isLocalConnection);
   const rejectUnauthorized = process.env.DATABASE_SSL_REJECT_UNAUTHORIZED !== 'false';
+  // DATABASE_SSL_CA_PEM: optional CA pinning, same as PgClient/migrate.ts -
+  // trusts a specific cert (e.g. self-hosted Postgres with a self-signed
+  // cert) without disabling verification via
+  // DATABASE_SSL_REJECT_UNAUTHORIZED=false. This script's own comment above
+  // said it's "kept in sync deliberately" with migrate.ts - it fell out of
+  // sync when migrate.ts got this fix (APAY-430) and this script didn't.
+  const caPem = process.env.DATABASE_SSL_CA_PEM;
   const client = new pg.Client({
     connectionString: DATABASE_URL,
-    ...(useSSL ? { ssl: { rejectUnauthorized } } : {}),
+    ...(useSSL ? { ssl: { rejectUnauthorized, ...(caPem ? { ca: caPem } : {}) } } : {}),
   });
 
   try {
