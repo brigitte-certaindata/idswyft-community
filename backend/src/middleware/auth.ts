@@ -659,6 +659,21 @@ export const authenticateDeveloperJWTOrServiceKey = catchAsync(
   },
 );
 
+// Service key (isk_*) only, for internal server-to-server routes: no JWT
+// fallback, and regular ik_* developer keys are refused. As with the
+// middleware above, per-key isolation (api_key_id) is the route's job.
+export const authenticateServiceKey = catchAsync(
+  async (req: Request, res: Response, next: NextFunction) => {
+    return authenticateAPIKey(req, res, (err?: any) => {
+      if (err) return next(err);
+      if (!req.apiKey?.is_service) {
+        return next(new AuthorizationError('This endpoint accepts a service API key (isk_*) only.'));
+      }
+      return next();
+    });
+  },
+);
+
 // HMAC-SHA256 hash a handoff token — same secret as API keys.
 // Used by handoff routes (storage/lookup) and authenticateHandoffToken (auth).
 export const hashHandoffToken = (token: string): string => {

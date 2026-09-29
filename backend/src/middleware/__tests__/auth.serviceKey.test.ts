@@ -55,6 +55,7 @@ vi.mock('@/config/index.js', () => ({
 
 import {
   authenticateAPIKey,
+  authenticateServiceKey,
   checkSandboxMode,
   checkPremiumAccess,
 } from '../auth.js';
@@ -236,5 +237,54 @@ describe('checkPremiumAccess — service-key full access (Phase 2)', () => {
 
     expect(next.called).toBe(1);
     expect(req.isPremium).toBeUndefined();
+  });
+});
+
+describe('authenticateServiceKey — service keys only', () => {
+  beforeEach(() => {
+    mockState.apiKeyRow = null;
+  });
+
+  const keyRow = (isService: boolean | undefined) => ({
+    id: 'key-uuid',
+    developer_id: 'dev-uuid',
+    key_prefix: isService ? 'isk_aaaa' : 'ik_aaaa',
+    is_sandbox: false,
+    is_active: true,
+    is_service: isService,
+    developer: { id: 'dev-uuid', email: 'dev@example.com', name: 'Dev', status: 'active' },
+  });
+
+  it('passes an isk_* service key through', async () => {
+    mockState.apiKeyRow = keyRow(true);
+    const req = makeReq('isk_test_key_value');
+    const next = makeNext();
+
+    await (authenticateServiceKey as any)(req, makeRes(), next);
+
+    expect(next.called).toBe(1);
+    expect(next.lastError).toBeUndefined();
+    expect(req.apiKey?.is_service).toBe(true);
+  });
+
+  it('refuses a regular ik_* developer key', async () => {
+    mockState.apiKeyRow = keyRow(false);
+    const req = makeReq('ik_test_key_value');
+    const next = makeNext();
+
+    await (authenticateServiceKey as any)(req, makeRes(), next);
+
+    expect(next.called).toBe(1);
+    expect(next.lastError?.message).toMatch(/service API key/);
+  });
+
+  it('refuses a request with no API key at all', async () => {
+    const req = makeReq();
+    const next = makeNext();
+
+    await (authenticateServiceKey as any)(req, makeRes(), next);
+
+    expect(next.called).toBe(1);
+    expect(next.lastError).toBeDefined();
   });
 });

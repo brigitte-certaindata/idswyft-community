@@ -21,6 +21,9 @@ import { logger } from './utils/logger.js';
 import { createGracefulShutdown } from './utils/gracefulShutdown.js';
 import { configureSharedLogger } from '@idswyft/shared';
 import newVerificationRoutes from './routes/newVerification.js';
+// AgentPay only (not upstream): service-key routes for reading a finished
+// verification's image keys and deleting its database copy.
+import internalVerificationRoutes from './routes/internalVerification.js';
 // Developer portal, admin/admin-thresholds, portal auth (OTP/OAuth/TOTP/
 // admin login), first-run setup, and the JSON/markdown API-docs routes are
 // intentionally not imported/mounted below — this deployment serves only
@@ -132,6 +135,7 @@ app.use('/api', apiActivityLogger);
 
 // Mount API routes
 app.use('/api/v2/verify', newVerificationRoutes);
+app.use('/api/v2/verify', internalVerificationRoutes);
 app.use('/api/verify/handoff', handoffRoutes);
 // /api/developer, /api/admin, /api/admin/thresholds, /api/auth (portal
 // OTP/OAuth/TOTP login) and /api/setup (first-run account creation) are
