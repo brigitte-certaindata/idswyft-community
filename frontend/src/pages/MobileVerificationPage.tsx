@@ -1748,20 +1748,22 @@ const MobileVerificationPage: React.FC = () => {
               // Failed or manual review
               return (
                 <>
-                  <div style={{
-                    width: 112, height: 112,
-                    border: `1px solid ${isFailed ? 'var(--flag)' : 'var(--flag)'}`,
-                    background: isFailed ? 'var(--flag-soft)' : 'var(--flag-soft)',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    fontSize: 44, color: 'var(--flag)', marginBottom: 20,
-                  }}>
-                    {isFailed ? '✕' : '?'}
-                  </div>
+                  {isFailed && (
+                    <div style={{
+                      width: 112, height: 112,
+                      border: '1px solid var(--flag)',
+                      background: 'var(--flag-soft)',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      fontSize: 44, color: 'var(--flag)', marginBottom: 20,
+                    }}>
+                      ✕
+                    </div>
+                  )}
 
                   <h1 style={{ fontSize: 24, fontWeight: 700, letterSpacing: '-0.025em', marginBottom: 8 }}>
                     {isFailed
                       ? isAgeOnly ? 'Age Verification Failed' : isDocumentOnly ? 'Document Verification Failed' : 'Verification Failed'
-                      : 'Under Review'}
+                      : 'Verification Complete'}
                   </h1>
 
                   <p style={{ fontSize: 13, color: 'var(--mid)', lineHeight: 1.55, marginBottom: 16 }}>
@@ -1769,7 +1771,7 @@ const MobileVerificationPage: React.FC = () => {
                       ? isAgeOnly
                         ? (finalResult.message || 'Age verification could not be completed.')
                         : 'We were unable to verify your identity. Please return to your desktop to see details.'
-                      : 'Your verification is being reviewed. You will be notified of the result.'}
+                      : 'Thanks, your verification is complete. You can close this page.'}
                   </p>
 
                   {isFailed && finalResult.retry_available === true && (

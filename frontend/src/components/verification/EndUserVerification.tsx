@@ -982,18 +982,20 @@ const EndUserVerification: React.FC<VerificationProps> = ({
 
         return (
           <div className="text-center max-w-sm mx-auto space-y-5">
-            <div className={isVerified ? 'result-badge badge-success' : isFailed ? 'result-badge badge-error' : 'result-badge badge-warning'} style={{
-              display: 'inline-flex', padding: '8px 16px', margin: '0 auto',
-              fontFamily: 'var(--mono)', fontSize: 12, fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase',
-            }}>
-              {isVerified ? 'VERIFIED' : isFailed ? 'FAILED' : 'REVIEW'}
-            </div>
+            {(isVerified || isFailed) && (
+              <div className={isVerified ? 'result-badge badge-success' : 'result-badge badge-error'} style={{
+                display: 'inline-flex', padding: '8px 16px', margin: '0 auto',
+                fontFamily: 'var(--mono)', fontSize: 12, fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase',
+              }}>
+                {isVerified ? 'VERIFIED' : 'FAILED'}
+              </div>
+            )}
 
             <div>
               <h2 className="text-xl font-semibold" style={{ color: 'var(--ink)' }}>
                 {isAgeOnly
                   ? isVerified ? 'Age Verified' : 'Age Verification Failed'
-                  : isVerified ? 'Identity Verified' : isFailed ? 'Verification Failed' : 'Under Review'}
+                  : isVerified ? 'Identity Verified' : isFailed ? 'Verification Failed' : 'Verification Complete'}
               </h2>
               <p className="text-sm mt-1" style={{ color: 'var(--mid)' }}>
                 {isAgeOnly
@@ -1004,7 +1006,7 @@ const EndUserVerification: React.FC<VerificationProps> = ({
                   ? 'Your identity has been successfully verified.'
                   : isFailed
                   ? finalResult.failure_reason || 'Verification could not be completed. Please try again.'
-                  : 'Your verification is under manual review. You will be notified of the result.'}
+                  : 'Thanks, your verification is complete. You can close this page.'}
               </p>
             </div>
 

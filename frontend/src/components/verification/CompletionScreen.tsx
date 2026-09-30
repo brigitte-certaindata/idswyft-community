@@ -96,12 +96,14 @@ export function CompletionScreen({ config, branding, device, result }: Completio
 
   const heading = isSuccess
     ? config?.completionTitle || 'Verification Verified'
-    : `Verification ${statusLabel}`
+    : isFailed
+      ? `Verification ${statusLabel}`
+      : 'Verification Complete'
   const body = isSuccess
     ? config?.completionMessage || 'Your identity has been successfully verified.'
     : statusLabel === 'Failed'
       ? 'Verification could not be completed. Please try again.'
-      : 'Your verification is being reviewed. You will be notified of the result.'
+      : 'Thanks, your verification is complete. You can close this page.'
 
   return (
     <div style={{
@@ -115,12 +117,14 @@ export function CompletionScreen({ config, branding, device, result }: Completio
         ) : (
           <img src="/idswyft-logo.png" alt="Idswyft" style={{ height: 36, margin: '0 auto 32px' }} />
         )}
-        <div className={isSuccess ? 'result-badge badge-success' : isFailed ? 'result-badge badge-error' : 'result-badge badge-warning'} style={{
-          margin: '0 auto 16px', display: 'inline-flex', padding: '8px 16px',
-          fontFamily: C.mono, fontSize: 12, fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase',
-        }}>
-          {isSuccess ? 'PASS' : isFailed ? 'FAIL' : 'REVIEW'}
-        </div>
+        {(isSuccess || isFailed) && (
+          <div className={isSuccess ? 'result-badge badge-success' : 'result-badge badge-error'} style={{
+            margin: '0 auto 16px', display: 'inline-flex', padding: '8px 16px',
+            fontFamily: C.mono, fontSize: 12, fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase',
+          }}>
+            {isSuccess ? 'PASS' : 'FAIL'}
+          </div>
+        )}
         <h1 style={{ fontFamily: C.sans, fontSize: '1.4rem', fontWeight: 600, color: 'var(--ink)', margin: '16px 0 8px' }}>
           {heading}
         </h1>
