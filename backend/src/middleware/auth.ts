@@ -153,7 +153,7 @@ export const authenticateHandoffToken = catchAsync(async (req: Request, res: Res
     // Look up session (flat query — no nested joins for PgClient compatibility)
     const { data: session, error: sessionError } = await supabase
       .from('mobile_handoff_sessions')
-      .select('id, token, api_key_id, user_id, status, expires_at')
+      .select('id, token, api_key_id, user_id, status, expires_at, verification_id')
       .eq('token', tokenHash)
       .single();
 
@@ -214,6 +214,17 @@ export const authenticateHandoffToken = catchAsync(async (req: Request, res: Res
     // Attach API key and developer to request (same shape as authenticateAPIKey)
     req.apiKey = { ...apiKeyRecord, developer } as APIKey;
     req.developer = developer as Developer;
+
+    // Bind this handoff token to its verification when it was minted from a
+    // session (handoff.ts stores verification_id in that case). This makes
+    // requireOwnedVerification — and every other check that reads
+    // req.sessionVerificationId — reject cross-verification access, matching
+    // the session-token path (authenticateSessionToken). Without it, a handoff
+    // token falls back to the developer-only check and can reach any
+    // verification under the same developer.
+    if (session.verification_id) {
+      req.sessionVerificationId = session.verification_id;
+    }
 
     // Check if developer account is suspended
     if (req.developer?.status === 'suspended') {
