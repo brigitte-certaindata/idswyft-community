@@ -5,7 +5,7 @@ import crypto from 'crypto';
 import { authenticateAPIKeyOrHandoff, authenticateServiceToken, authenticateUser, checkSandboxMode, hashHandoffToken } from '@/middleware/auth.js';
 import { verificationRateLimit } from '@/middleware/rateLimit.js';
 import { idempotencyMiddleware } from '@/middleware/idempotency.js';
-import { catchAsync, ValidationError, FileUploadError } from '@/middleware/errorHandler.js';
+import { catchAsync, ValidationError, FileUploadError, APIError } from '@/middleware/errorHandler.js';
 import { validate } from '@/middleware/validate.js';
 import { StorageService } from '@/services/storage.js';
 import { DataRetentionService } from '@/services/dataRetention.js';
@@ -925,6 +925,11 @@ router.post('/initialize',
         details: updateError.details,
         hint: updateError.hint,
       });
+      // Fail loudly: this write persists api_key_id, verification_mode and the
+      // session timestamps. If it is lost, later steps and the internal
+      // service-key routes (which look the verification up by api_key_id) break,
+      // yet the caller would otherwise receive a 201 for an unusable verification.
+      throw new APIError('Failed to initialize verification', 500, 'INIT_CONFIG_WRITE_FAILED');
     }
 
     // Resolve flow config from verification_mode
@@ -962,6 +967,10 @@ router.post('/initialize',
         verificationId: verificationRecord.id,
         error: tokenError.message,
       });
+      // Fail loudly: without the stored session-token hash the capture link is
+      // dead, so returning 201 with a token that was never persisted would hand
+      // the caller a broken verification.
+      throw new APIError('Failed to initialize verification', 500, 'INIT_SESSION_TOKEN_WRITE_FAILED');
     }
 
     // Build verification URL from Origin/Referer or FRONTEND_URL env
